@@ -108,6 +108,13 @@ class DispatchSimulator:
         
         print(f"\n>> New Emergency Spawned: {new_emergency}")
         return new_emergency
+    
+    def reassign_emergencies(self, fuzzy: bool):
+        """ Assigns the emergencies to free ambulances """
+
+        # if not fuzzy - greedily taking the emergencies
+        # if fuzzy - fuzzy conditioning for emergency change
+        pass
 
     def run_simulation_step(self):
         """A single step in the simulation."""
