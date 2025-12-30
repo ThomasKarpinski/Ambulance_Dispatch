@@ -1,5 +1,6 @@
 import csv
 import random
+import heapq
 
 """
 This module defines the map for the ambulance dispatch optimization problem.
@@ -66,6 +67,46 @@ def get_location_by_id(location_id):
         if location["id"] == location_id:
             return location
     return None
+
+def find_shortest_path(start_id, end_id):
+    """
+    Finds the shortest path between two locations using Dijkstra's algorithm.
+    Returns the path as a list of location IDs and the total distance.
+    """
+    num_locations = len(adjacency_matrix)
+    distances = {i: float('inf') for i in range(num_locations)}
+    distances[start_id] = 0
+    previous_nodes = {i: None for i in range(num_locations)}
+    
+    pq = [(0, start_id)]
+
+    while pq:
+        current_distance, current_node = heapq.heappop(pq)
+
+        if current_distance > distances[current_node]:
+            continue
+
+        if current_node == end_id:
+            break
+
+        for neighbor, weight in enumerate(adjacency_matrix[current_node]):
+            if weight > 0:
+                distance = current_distance + weight
+                if distance < distances[neighbor]:
+                    distances[neighbor] = distance
+                    previous_nodes[neighbor] = current_node
+                    heapq.heappush(pq, (distance, neighbor))
+
+    path = []
+    current_node = end_id
+    while current_node is not None:
+        path.insert(0, current_node)
+        current_node = previous_nodes[current_node]
+        
+    if path[0] == start_id:
+        return path, distances[end_id]
+    else:
+        return None, float('inf')
 
 def print_matrix():
     """Prints the adjacency matrix in a readable format."""
