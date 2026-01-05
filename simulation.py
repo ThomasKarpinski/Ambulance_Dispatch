@@ -1,6 +1,8 @@
 import random
 import time
 from ambulance_map import locations, adjacency_matrix, get_location_by_id, find_shortest_path
+from tensorflow.keras.models import load_model
+
 
 class Ambulance:
     """
@@ -86,6 +88,7 @@ class DispatchSimulator:
         self._next_ambulance_id = 0
         self._next_emergency_id = 0
         self.max_emergency_lifespan = 20 # Max steps an emergency can be active before considered unresponded
+        self.risk_model = load_model("risk_model.h5", compile=False)
 
         # Create ambulances for each base
         ambulance_bases = [loc for loc in self.locations if loc['type'] == 'A']
@@ -95,6 +98,33 @@ class DispatchSimulator:
                 self._next_ambulance_id += 1
         
         print(f"Initialized simulator with {len(self.ambulances)} ambulances.")
+
+    def predict_risk(self, emergency, ambulance):
+        from ambulance_map import find_shortest_path
+
+        path, travel_time = find_shortest_path(
+        ambulance.current_location_id,
+        emergency.location_id
+        )
+
+        if not path:
+            return 0.0
+
+        congestion = travel_time / len(path)
+        free_ambulances = len([a for a in self.ambulances if a.status == 'available'])
+        time_of_day = random.randint(0, 23)
+
+        import numpy as np
+
+        X = np.array([[
+            emergency.priority / 5,
+            min(travel_time, 20) / 20,
+            min(congestion, 5) / 5,
+            min(free_ambulances, 5) / 5,
+            time_of_day / 23
+        ]], dtype=np.float32)
+
+        return float(self.risk_model.predict(X, verbose=0)[0][0])
 
     def spawn_emergency(self):
         """
@@ -135,7 +165,15 @@ class DispatchSimulator:
         available_ambulances = [a for a in self.ambulances if a.status == 'available']
 
         # Sort emergencies by priority (highest first)
-        unassigned_emergencies.sort(key=lambda e: e.priority, reverse=True)
+        def score(e):
+            risks = [self.predict_risk(e, amb) for amb in available_ambulances]
+            return max(risks) if risks else 0
+
+        unassigned_emergencies.sort(
+        key=lambda e: 0.7 * e.priority / 5 + 0.3 * score(e),
+        reverse=True
+        )
+
 
         for emergency in unassigned_emergencies:
             best_ambulance = None
