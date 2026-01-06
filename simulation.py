@@ -16,6 +16,7 @@ class Ambulance:
         self.destination_id = None
         self.path = []
         self.time_to_destination = 0
+        self.total_distance_traveled = 0 # Track cumulative distance
 
     def __repr__(self):
         return (f"Ambulance(id={self.id}, location={self.current_location_id}, "
@@ -30,6 +31,9 @@ class Ambulance:
             self.destination_id = emergency.location_id
             self.path = path_to_emergency
             self.time_to_destination = travel_time
+            # Track dispatch time on the emergency
+            if emergency.dispatch_time is None:
+                emergency.dispatch_time = emergency.time_elapsed
             print(f"Ambulance {self.id} dispatched from {self.current_location_id} to emergency at {emergency.location_id}.")
             return True
         return False
@@ -66,6 +70,8 @@ class Emergency:
         self.priority = priority
         self.dispatched_ambulance = None # To track which ambulance is assigned
         self.time_elapsed = 0 # To track how long emergency has been active
+        self.dispatch_time = None # Time step when ambulance was dispatched
+        self.completion_time = None # Time step when emergency was resolved
 
     def __repr__(self):
         return (f"Emergency(id={self.id}, location={self.location_id}, priority={self.priority}, "
@@ -174,8 +180,10 @@ class DispatchSimulator:
         
         # Calculate time taken for this step
         time_taken = self.adjacency_matrix[ambulance.current_location_id][next_location_id]
+        distance = time_taken  # Assume distance equals time weight for simplicity
         
         ambulance.current_location_id = next_location_id
+        ambulance.total_distance_traveled += distance  # Track distance
         ambulance.path = ambulance.path[1:] # Remove the current location from path
         ambulance.time_to_destination -= time_taken
 
@@ -212,6 +220,7 @@ class DispatchSimulator:
                 ambulance.dropoff_patient()
                 # Mark emergency as completed
                 if completed_emergency:
+                    completed_emergency.completion_time = completed_emergency.time_elapsed
                     self.completed_emergencies.append(completed_emergency)
                     # Remove the emergency from active_emergencies after it's completed
                     self.active_emergencies = [e for e in self.active_emergencies if e.id != completed_emergency.id]

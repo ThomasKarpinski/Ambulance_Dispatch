@@ -194,6 +194,85 @@ class GA_Generator:
                     amb2.path = []
                     amb2.time_to_destination = 0
 
+    def compute_fitness(self, simulator: DispatchSimulator):
+        """
+        Computes a refined fitness score based on multiple metrics:
+        1. Emergency Satisfaction Rate (0-1): ratio of completed to total emergencies
+        2. Average Response Time: time from emergency spawn to dispatch (lower is better)
+        3. Total Travel Distance: cumulative distance traveled by all ambulances (lower is better)
+        4. Resource Utilization: fraction of active time for ambulances (higher is better)
+        
+        Returns a composite fitness score (higher is better).
+        """
+        completed = len(simulator.completed_emergencies)
+        unresponded = len(simulator.unresponded_emergencies)
+        active = len(simulator.active_emergencies)
+        total_emergencies = completed + unresponded + active
+
+        # Metric 1: Emergency Satisfaction Rate
+        if total_emergencies > 0:
+            satisfaction_rate = completed / total_emergencies
+        else:
+            satisfaction_rate = 1.0  # No emergencies = perfect (trivial case)
+
+        # Metric 2: Average Response Time
+        # Response time = dispatch_time - spawn_time (time elapsed when dispatched)
+        response_times = []
+        for em in simulator.completed_emergencies + simulator.unresponded_emergencies:
+            if em.dispatch_time is not None:
+                response_times.append(em.dispatch_time)
+        
+        if response_times:
+            avg_response_time = sum(response_times) / len(response_times)
+            # Normalize: assume max acceptable response is 10 steps
+            normalized_response = min(avg_response_time / 10.0, 1.0)
+        else:
+            # No dispatched emergencies; penalize (treat as 1.0, worst case)
+            normalized_response = 1.0 if total_emergencies > 0 else 0.0
+
+        # Metric 3: Total Travel Distance
+        total_distance = sum(amb.total_distance_traveled for amb in simulator.ambulances)
+        if total_distance == 0 and total_emergencies == 0:
+            normalized_distance = 0.0  # No movement, no emergencies = good
+        elif total_distance == 0:
+            normalized_distance = 1.0  # No movement but emergencies exist = bad
+        else:
+            # Normalize distance: assume max acceptable total distance is 100 units
+            normalized_distance = min(total_distance / 100.0, 1.0)
+
+        # Metric 4: Resource Utilization
+        # Calculate fraction of time ambulances are active (responding or transporting)
+        if simulator.ambulances:
+            # Simple heuristic: count ambulances in active states relative to total ambulances
+            active_ambulances = sum(1 for a in simulator.ambulances 
+                                   if a.status in ['responding', 'transporting'])
+            utilization = active_ambulances / len(simulator.ambulances)
+        else:
+            utilization = 0.0
+
+        # Composite Fitness Score
+        # Weights: satisfaction is most important, then response time, distance, utilization
+        w_satisfaction = 0.5
+        w_response = 0.25
+        w_distance = 0.15
+        w_utilization = 0.10
+
+        # Invert response time and distance so higher is better
+        fitness_score = (
+            w_satisfaction * satisfaction_rate +
+            w_response * (1.0 - normalized_response) +
+            w_distance * (1.0 - normalized_distance) +
+            w_utilization * utilization
+        )
+
+        return fitness_score, {
+            'satisfaction_rate': satisfaction_rate,
+            'avg_response_time': avg_response_time if response_times else None,
+            'total_distance': total_distance,
+            'utilization': utilization,
+            'fitness_score': fitness_score
+        }
+
     def geneticAlgorithm(
             self,
             epochs: int,
@@ -236,18 +315,17 @@ class GA_Generator:
                                 self.ds.ambulances[a2]
                             )
             
-            # evaluating generation metrics
-            total_emergencies = len(self.ds.completed_emergencies) + len(self.ds.unresponded_emergencies) + len(self.ds.active_emergencies)
-            satisfied_emergencies = len(self.ds.completed_emergencies)
-
-            if total_emergencies > 0:
-                satisfaction_rate = satisfied_emergencies / total_emergencies
-            else:
-                satisfaction_rate = 0.0 # No emergencies, so trivially satisfied
+            # evaluating generation metrics using the refined fitness function
+            fitness_score, metrics = self.compute_fitness(self.ds)
 
             print(f"Generation {g+1} Metrics:")
-            print(f"  Total Emergencies: {total_emergencies}")
-            print(f"  Satisfied Emergencies: {satisfied_emergencies}")
+            print(f"  Total Emergencies: {len(self.ds.completed_emergencies) + len(self.ds.unresponded_emergencies) + len(self.ds.active_emergencies)}")
+            print(f"  Completed Emergencies: {len(self.ds.completed_emergencies)}")
             print(f"  Unresponded Emergencies: {len(self.ds.unresponded_emergencies)}")
-            print(f"  Emergency Satisfaction Rate: {satisfaction_rate:.2%}")
+            print(f"  Satisfaction Rate: {metrics['satisfaction_rate']:.2%}")
+            if metrics['avg_response_time'] is not None:
+                print(f"  Average Response Time: {metrics['avg_response_time']:.2f} steps")
+            print(f"  Total Travel Distance: {metrics['total_distance']:.2f} units")
+            print(f"  Ambulance Utilization: {metrics['utilization']:.2%}")
+            print(f"  Overall Fitness Score: {metrics['fitness_score']:.4f}")
 
