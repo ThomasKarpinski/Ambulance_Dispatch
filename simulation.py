@@ -1,7 +1,7 @@
 import random
 import time
-import fuzzy_system     # <--- Required for Priority Calculation
-import ga_dispatcher    # <--- Required for Evolutionary Dispatch
+import fuzzy_system
+import ga_dispatcher
 from ambulance_map import locations, adjacency_matrix, find_shortest_path
 
 class Ambulance:
@@ -62,11 +62,9 @@ class Emergency:
         self.id = id
         self.location_id = location_id
 
-        # --- WEEK 5: UNCERTAINTY (SEVERITY NOISE) ---
         self.true_priority = priority
 
-        # 30% chance the reported priority is wrong (off by +/- 1)
-        # This simulates human error in reporting 911 calls
+        # 30% the reported priority is wrong
         if random.random() < 0.3:
             noise = random.choice([-1, 1])
             self.priority = max(1, min(5, priority + noise))
@@ -133,12 +131,7 @@ class DispatchSimulator:
         if not unassigned_emergencies or not available_ambulances:
             return
 
-        # =======================================================
-        # OPTION 1: FUZZY-GENETIC DISPATCH (The Smart Way)
-        # =======================================================
         if fuzzy:
-            # Use the Genetic Algorithm Dispatcher we created
-            # It optimizes the whole set of assignments at once
             ga = ga_dispatcher.GeneticDispatcher(available_ambulances, unassigned_emergencies)
             best_assignments = ga.solve()
 
@@ -161,18 +154,12 @@ class DispatchSimulator:
                         continue
             return
 
-        # =======================================================
-        # OPTION 2: BASELINE (Dumb, Pure Distance Greedy)
-        # =======================================================
-        # To prove your Fuzzy GA is better, the baseline must be "dumb".
-        # It picks the closest ambulance regardless of severity.
-
         while available_ambulances and unassigned_emergencies:
             global_best_pair = None
             min_global_dist = float('inf')
             best_global_path = []
 
-            # Check every ambulance against every call to find the absolute shortest trip
+            #check every ambulance against every call to find the absolute shortest trip
             for ambulance in available_ambulances:
                 for emergency in unassigned_emergencies:
                     try:
@@ -203,7 +190,7 @@ class DispatchSimulator:
         if not ambulance.path or ambulance.time_to_destination <= 0:
             return
 
-        # Safety check for path length
+        # safety check for path length
         if len(ambulance.path) < 2:
             if ambulance.destination_id:
                 ambulance.current_location_id = ambulance.destination_id
@@ -213,13 +200,12 @@ class DispatchSimulator:
 
         next_location_id = ambulance.path[1]
 
-        # --- WEEK 5: UNCERTAINTY (TRAFFIC DELAYS) ---
         try:
             base_time = self.adjacency_matrix[ambulance.current_location_id][next_location_id]
         except:
              base_time = 1
 
-        # Add random traffic delay (0% to 50% extra time)
+        # random traffic delay (0% to 50% extra time)
         traffic_factor = random.uniform(1.0, 1.5)
         actual_time_taken = base_time * traffic_factor
 
@@ -228,12 +214,11 @@ class DispatchSimulator:
         ambulance.path = ambulance.path[1:]
         ambulance.time_to_destination -= actual_time_taken
 
-        # Check if arrived at destination
+        # check if arrived at destination
         if ambulance.current_location_id == ambulance.destination_id or ambulance.time_to_destination <= 0:
             ambulance.time_to_destination = 0
 
             if ambulance.status == 'responding':
-                # Arrived at emergency
                 emergency = ambulance.patient
                 if emergency:
                     ambulance.pickup_patient(emergency)

@@ -2,7 +2,7 @@ from simulation import DispatchSimulator, Ambulance
 from random import randint
 import random
 from ambulance_map import adjacency_matrix, find_shortest_path, locations
-import fuzzy_system  # <--- Added Import
+import fuzzy_system
 
 class GA_Generator:
     """
@@ -25,9 +25,6 @@ class GA_Generator:
         self.fuzzy = fuzzy
         self.ds = None
 
-    # =========================================================================
-    # NEW: Helper for Fuzzy Logic (Integrated into your class)
-    # =========================================================================
     def calculate_assignment_score(self, ambulance, emergency):
         """
         Calculates the Fuzzy Priority score for assigning a specific
@@ -50,9 +47,6 @@ class GA_Generator:
         priority_score = fuzzy_system.calculate_priority(severity, travel_time)
         return priority_score
 
-    # =========================================================================
-    # EXISTING COMPLEX MUTATION LOGIC (Restored)
-    # =========================================================================
     def __mutate__(
             self,
             ambulance: Ambulance
@@ -129,9 +123,6 @@ class GA_Generator:
             ambulance.patient = None
             ambulance.time_to_destination = 0
 
-    # =========================================================================
-    # EXISTING COMPLEX CROSSBREED LOGIC (Restored)
-    # =========================================================================
     def __crossbreed__(self,
             amb1: Ambulance,
             amb2: Ambulance
@@ -334,18 +325,9 @@ class GA_Generator:
                 for _ in range(randint(*self.emergency_range)):
                     self.ds.spawn_emergency()
 
-                # ==========================================================
-                # UPDATE: Pass the self.fuzzy flag to the simulation step
-                # ==========================================================
-                # Note: Ensure your simulation.py run_simulation_step() accepts this arg
-                # Or updates reassign_emergencies internal call.
                 try:
                     self.ds.run_simulation_step(fuzzy=self.fuzzy)
                 except TypeError:
-                    # Fallback if simulation.py hasn't been updated to take the arg:
-                    # We assume reassign_emergencies handles it or default is used.
-                    # Ideally, you should update simulation.py run_simulation_step
-                    # to: def run_simulation_step(self, fuzzy=False): ...
                     self.ds.reassign_emergencies(fuzzy=self.fuzzy)
                     self.ds.run_simulation_step() # Run the rest of the step
 

@@ -7,9 +7,8 @@ class GeneticDispatcher:
         self.ambulances = available_ambulances
         self.emergencies = unassigned_emergencies
 
-        # GA Parameters (tuned for speed since this runs in real-time)
-        self.pop_size = 20        # Smaller population for speed
-        self.generations = 10     # Fewer generations for speed
+        self.pop_size = 20
+        self.generations = 10
         self.mutation_rate = 0.1
 
     def generate_random_genome(self):
@@ -53,7 +52,7 @@ class GeneticDispatcher:
             used_ambulances.add(ambulance.id)
             emergency = self.emergencies[i]
 
-            # 1. Get Estimated Travel Time
+            # get estim. travel time
             try:
                 res = find_shortest_path(ambulance.current_location_id, emergency.location_id)
                 if isinstance(res, tuple): _, time = res
@@ -61,8 +60,7 @@ class GeneticDispatcher:
             except:
                 time = 999
 
-            # 2. Use FUZZY LOGIC to get the score
-            # The GA tries to MAXIMIZE this Fuzzy Score
+            # The GA tries to max out this Fuzzy Score
             score = fuzzy_system.calculate_priority(emergency.priority, time)
             total_score += score
 
