@@ -2,105 +2,156 @@ import random
 import fuzzy_system
 from ambulance_map import find_shortest_path
 
+
 class GeneticDispatcher:
+    """
+    Genetic Algorithm dispatcher.
+    Assigns at most ONE ambulance to each emergency
+    and at most ONE emergency to each ambulance.
+    """
+
     def __init__(self, available_ambulances, unassigned_emergencies):
+        # Store ambulance objects, but genomes will use IDs
         self.ambulances = available_ambulances
         self.emergencies = unassigned_emergencies
 
+        self.ambulance_ids = [a.id for a in self.ambulances]
+        self.ambulance_by_id = {a.id: a for a in self.ambulances}
+
+        # GA parameters
         self.pop_size = 20
         self.generations = 10
         self.mutation_rate = 0.1
 
+        # Precompute travel times for speed
+        self.travel_time_cache = self._precompute_travel_times()
+
+        # Penalty for leaving an emergency unassigned
+        self.unassigned_penalty = 50
+
+    # --------------------------------------------------
+    # Helper methods
+    # --------------------------------------------------
+
+    def _precompute_travel_times(self):
+        """
+        Cache travel times from each ambulance to each emergency.
+        """
+        cache = {}
+        for amb in self.ambulances:
+            for em in self.emergencies:
+                try:
+                    path, time = find_shortest_path(amb.current_location_id, em.location_id)
+                    if path is None:
+                        time = float('inf')
+                except Exception:
+                    time = float('inf')
+                cache[(amb.id, em.id)] = time
+        return cache
+
+    # --------------------------------------------------
+    # Genome representation
+    # --------------------------------------------------
     def generate_random_genome(self):
         """
-        A genome is a list of assignments.
+        Genome = list of ambulance IDs or None.
         Index i corresponds to self.emergencies[i].
-        Value is the Ambulance object assigned to it.
         """
-        genome = []
-        # Create a pool of available ambulances we can draw from
-        pool = self.ambulances.copy()
+        genome = [None] * len(self.emergencies)
+        shuffled_ids = self.ambulance_ids.copy()
+        random.shuffle(shuffled_ids)
 
-        for _ in self.emergencies:
-            if pool:
-                # Randomly pick an ambulance and remove it (avoid double-booking in one genome)
-                chosen = random.choice(pool)
-                genome.append(chosen)
-                pool.remove(chosen)
-            else:
-                genome.append(None) # No ambulance available
+        for i in range(min(len(genome), len(shuffled_ids))):
+            genome[i] = shuffled_ids[i]
+
         return genome
 
+    # --------------------------------------------------
+    # Fitness function
+    # --------------------------------------------------
     def calculate_fitness(self, genome):
         """
-        Fitness = Sum of Fuzzy Priorities for this set of assignments.
-        Higher Score = Better Plan.
+        Fitness = sum of fuzzy priority scores
+                  minus penalties for unassigned emergencies.
         """
-        total_score = 0
+        score = 0.0
         used_ambulances = set()
 
-        for i, ambulance in enumerate(genome):
-            if ambulance is None:
-                total_score -= 50 # Penalty for leaving a call unassigned
-                continue
-
-            # Constraint check: purely defensive
-            if ambulance.id in used_ambulances:
-                total_score -= 100 # Severe penalty for double-booking same ambulance
-                continue
-
-            used_ambulances.add(ambulance.id)
+        for i, amb_id in enumerate(genome):
             emergency = self.emergencies[i]
 
-            # get estim. travel time
-            try:
-                res = find_shortest_path(ambulance.current_location_id, emergency.location_id)
-                if isinstance(res, tuple): _, time = res
-                else: time = res
-            except:
-                time = 999
+            if amb_id is None:
+                score -= self.unassigned_penalty
+                continue
 
-            # The GA tries to max out this Fuzzy Score
-            score = fuzzy_system.calculate_priority(emergency.priority, time)
-            total_score += score
+            if amb_id in used_ambulances:
+                # Penalize double-booking
+                score -= self.unassigned_penalty * 2
+                continue
 
-        return total_score
+            used_ambulances.add(amb_id)
 
+            travel_time = self.travel_time_cache.get((amb_id, emergency.id), float('inf'))
+
+            priority_score = fuzzy_system.calculate_priority(emergency.priority, travel_time)
+
+            score += priority_score
+
+        return score
+
+    # --------------------------------------------------
+    # Genetic operators
+    # --------------------------------------------------
     def crossover(self, parent1, parent2):
-        """Single point crossover."""
-        if len(parent1) < 2: return parent1
+        """
+        Order-preserving crossover.
+        Ensures no ambulance ID appears twice.
+        """
+        size = len(parent1)
+        if size < 2:
+            return parent1.copy()
 
-        point = random.randint(1, len(parent1) - 1)
-        child = parent1[:point] + parent2[point:]
+        cut = random.randint(1, size - 1)
+        child = parent1[:cut]
 
-        # Note: Simple crossover might create duplicates (double-booking).
-        # In a complex GA, we repair this. Here, we rely on the fitness penalty
-        # (total_score -= 100) to kill off invalid children in the next generation.
-        return child
+        used = set(a for a in child if a is not None)
+
+        for gene in parent2:
+            if gene is None:
+                child.append(None)
+            elif gene not in used:
+                child.append(gene)
+                used.add(gene)
+            else:
+                child.append(None)
+
+        return child[:size]
 
     def mutate(self, genome):
-        """Randomly swap an assigned ambulance with another available one."""
-        if random.random() < self.mutation_rate:
-            idx = random.randint(0, len(genome) - 1)
-            # Pick a random ambulance from the original available list
-            new_amb = random.choice(self.ambulances)
-            genome[idx] = new_amb
+        """Randomly swap two ambulances in the genome."""
+        if random.random() < self.mutation_rate and len(genome) >= 2:
+            i, j = random.sample(range(len(genome)), 2)
+            genome[i], genome[j] = genome[j], genome[i]
         return genome
 
+    # --------------------------------------------------
+    # Main GA loop
+    # --------------------------------------------------
     def solve(self):
-        """Main GA Loop."""
-        # 1. Init Population
+        """
+        Runs the GA and returns the best genome found.
+        """
         population = [self.generate_random_genome() for _ in range(self.pop_size)]
 
         for _ in range(self.generations):
-            # 2. Sort by Fitness
+            # Sort population by fitness
             population.sort(key=self.calculate_fitness, reverse=True)
 
-            # 3. Selection (Keep top 50%)
-            survivors = population[:self.pop_size // 2]
-
-            # 4. Crossover & Mutation to refill population
+            # Keep top 50%
+            survivors = population[: self.pop_size // 2]
             next_gen = survivors.copy()
+
+            # Generate children
             while len(next_gen) < self.pop_size:
                 p1, p2 = random.sample(survivors, 2)
                 child = self.crossover(p1, p2)
@@ -109,6 +160,13 @@ class GeneticDispatcher:
 
             population = next_gen
 
-        # Return best solution found
+        # Return best genome
         best_genome = max(population, key=self.calculate_fitness)
-        return best_genome
+
+        # Map genome IDs back to Ambulance objects
+        best_assignment = [
+            self.ambulance_by_id[amb_id] if amb_id is not None else None
+            for amb_id in best_genome
+        ]
+
+        return best_assignment
