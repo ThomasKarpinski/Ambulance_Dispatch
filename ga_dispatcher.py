@@ -1,6 +1,7 @@
 import random
 from ambulance_map import find_shortest_path
-import fuzzy_system  # your fuzzy module
+import fuzzy_system
+
 
 class GeneticDispatcher:
     """
@@ -8,66 +9,60 @@ class GeneticDispatcher:
     Each emergency gets at most one ambulance.
     """
 
-    def __init__(self, available_ambulances, unassigned_emergencies, seed=None, mc_runs=10):
+    def __init__(self, available_ambulances, unassigned_emergencies, seed=None):
         if seed is not None:
             random.seed(seed)
 
         self.ambulances = available_ambulances
         self.emergencies = unassigned_emergencies
+
         self.ambulance_ids = [a.id for a in self.ambulances]
         self.ambulance_by_id = {a.id: a for a in self.ambulances}
 
         # GA parameters
-        self.pop_size = 20
-        self.generations = 15
+        self.pop_size = 50          # larger population
+        self.generations = 25       # more generations
         self.mutation_rate = 0.1
+        self.mc_runs = 10           # Monte Carlo averaging
 
-        # Monte-Carlo runs per fitness evaluation
-        self.mc_runs = mc_runs
-
-        # Fuzzy flag
-        self.use_fuzzy = False
-
-        # Penalties
+        # penalties
         self.unassigned_penalty = 50
         self.infeasible_penalty = 100
 
-        # Cache deterministic travel times
+        # deterministic travel time cache
         self.travel_time_cache = self._precompute_travel_times()
 
-    # ------------------------------
-    # Precompute travel times
-    # ------------------------------
+        # Fuzzy toggle (set externally if needed)
+        self.use_fuzzy = True
+
+    # --------------------------------------------------
     def _precompute_travel_times(self):
+        """Cache deterministic travel times between ambulances and emergencies."""
         cache = {}
         for amb in self.ambulances:
             for em in self.emergencies:
                 try:
-                    _, time = find_shortest_path(amb.current_location_id, em.location_id)
-                    if time is None:
-                        time = float("inf")
+                    _, t = find_shortest_path(amb.current_location_id, em.location_id)
+                    cache[(amb.id, em.id)] = t if t is not None else float("inf")
                 except Exception:
-                    time = float("inf")
-                cache[(amb.id, em.id)] = time
+                    cache[(amb.id, em.id)] = float("inf")
         return cache
 
-    # ------------------------------
-    # Genome representation
-    # ------------------------------
+    # --------------------------------------------------
     def generate_random_genome(self):
+        """Random assignment of ambulances to emergencies (with Nones)."""
         genome = [None] * len(self.emergencies)
-        ids = self.ambulance_ids.copy()
+        ids = self.ambulance_ids[:]
         random.shuffle(ids)
         for i in range(min(len(genome), len(ids))):
             genome[i] = ids[i]
         return genome
 
-    # ------------------------------
-    # Fitness calculation
-    # ------------------------------
+    # --------------------------------------------------
     def _single_fitness(self, genome):
+        """Compute fitness score for a single genome."""
         score = 0.0
-        used_ambulances = set()
+        used = set()
 
         for i, amb_id in enumerate(genome):
             emergency = self.emergencies[i]
@@ -76,41 +71,41 @@ class GeneticDispatcher:
                 score -= self.unassigned_penalty
                 continue
 
-            if amb_id in used_ambulances:
+            if amb_id in used:
                 score -= self.infeasible_penalty
                 continue
 
-            used_ambulances.add(amb_id)
+            used.add(amb_id)
 
             travel_time = self.travel_time_cache.get((amb_id, emergency.id), float("inf"))
             if travel_time == float("inf"):
                 score -= self.infeasible_penalty
                 continue
 
-            # Use fuzzy or simple GA priority
+            # Compute priority
             if self.use_fuzzy:
+                # Fuzzy priority from fuzzy_system (0-100)
                 priority = fuzzy_system.calculate_priority(
-                    emergency.severity,
-                    travel_time
+                    emergency.reported_priority, travel_time
                 )
             else:
-                # GA-only heuristic: higher severity and shorter travel better
-                priority = emergency.severity / (1 + travel_time)
+                # GA-only heuristic scaled to 0-100
+                priority = (emergency.reported_priority / (1 + travel_time)) * 20
 
             score += priority
 
         return score
 
-    def calculate_fitness(self, genome):
+    def fitness(self, genome):
+        """Monte Carlo averaging to stabilize fitness."""
         total = 0.0
         for _ in range(self.mc_runs):
             total += self._single_fitness(genome)
         return total / self.mc_runs
 
-    # ------------------------------
-    # Genetic operators
-    # ------------------------------
+    # --------------------------------------------------
     def crossover(self, parent1, parent2):
+        """Single-point crossover with duplicate avoidance."""
         size = len(parent1)
         if size < 2:
             return parent1.copy()
@@ -131,40 +126,40 @@ class GeneticDispatcher:
         return child
 
     def mutate(self, genome):
+        """Swap two genes in the genome with mutation_rate probability."""
         if random.random() < self.mutation_rate and len(genome) >= 2:
             i, j = random.sample(range(len(genome)), 2)
             genome[i], genome[j] = genome[j], genome[i]
         return genome
 
-    # ------------------------------
-    # Main GA solver
-    # ------------------------------
+    # --------------------------------------------------
     def solve(self):
+        """Run GA to assign ambulances to emergencies."""
         population = [self.generate_random_genome() for _ in range(self.pop_size)]
 
         for _ in range(self.generations):
-            # Sort population by fitness
-            population.sort(key=self.calculate_fitness, reverse=True)
-
-            # Select survivors (top 50%)
+            # Sort population by fitness descending
+            population.sort(key=self.fitness, reverse=True)
             survivors = population[: self.pop_size // 2]
-            next_gen = survivors.copy()
 
-            # Generate offspring
+            # Generate next generation
+            next_gen = survivors[:]
             while len(next_gen) < self.pop_size:
                 p1, p2 = random.sample(survivors, 2)
-                child = self.crossover(p1, p2)
-                child = self.mutate(child)
+                child = self.mutate(self.crossover(p1, p2))
                 next_gen.append(child)
 
             population = next_gen
 
-        # Return the best genome decoded to ambulances
-        best_genome = max(population, key=self.calculate_fitness)
-        return [
-            self.ambulance_by_id[g] if g is not None else None
-            for g in best_genome
-        ]
+        # Best genome
+        best = max(population, key=self.fitness)
 
+        # Return assignments in simulator format: [(ambulance, emergency), ...]
+        assignments = []
+        for i, amb_id in enumerate(best):
+            if amb_id is not None:
+                assignments.append(
+                    (self.ambulance_by_id[amb_id], self.emergencies[i])
+                )
 
-
+        return assignments

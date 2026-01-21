@@ -1,6 +1,5 @@
 import random
-import time
-from ambulance_map import locations, adjacency_matrix, find_shortest_path
+from ambulance_map import locations, adjacency_matrix, find_shortest_path, TIME_UNIT_MINUTES
 
 
 class Ambulance:
@@ -12,7 +11,7 @@ class Ambulance:
         self.patient = None
         self.destination_id = None
         self.path = []
-        self.time_to_destination = 0.0
+        self.time_to_destination = 0.0  # minutes
         self.total_distance_traveled = 0.0
 
     def dispatch(self, emergency, path, travel_time):
@@ -42,7 +41,7 @@ class Ambulance:
 class Emergency:
     """
     severity = true emergency severity (ground truth)
-    reported_priority = noisy observation
+    reported_priority = noisy observation (used for dispatch)
     """
     def __init__(self, id: int, location_id: int, severity: int, spawn_time: int):
         self.id = id
@@ -74,12 +73,12 @@ class DispatchSimulator:
         self.completed_emergencies = []
         self.unresponded_emergencies = []
 
-        self.current_time = 0
-        self.max_emergency_lifespan = 25
+        self.current_time = 0  # minutes
+        self.max_emergency_lifespan = 25  # minutes
         self._next_ambulance_id = 0
         self._next_emergency_id = 0
 
-        # Create ambulances
+        # Create ambulances at bases
         bases = [loc for loc in locations if loc["type"] == "A"]
         for base in bases:
             for _ in range(num_ambulances_per_base):
@@ -115,7 +114,7 @@ class DispatchSimulator:
         return e
 
     # --------------------------------------------------
-    # Assignment (neutral — GA logic lives elsewhere)
+    # Assignment (dispatcher logic lives elsewhere)
     # --------------------------------------------------
 
     def assign(self, assignments):
@@ -123,21 +122,17 @@ class DispatchSimulator:
         assignments: list of (ambulance, emergency)
         """
         for ambulance, emergency in assignments:
-            res = find_shortest_path(
+            path, dist = find_shortest_path(
                 ambulance.current_location_id,
                 emergency.location_id
             )
-            if isinstance(res, tuple):
-                path, dist = res
-            else:
-                path, dist = [ambulance.current_location_id, emergency.location_id], res
 
             if ambulance.dispatch(emergency, path, dist):
                 emergency.dispatched_ambulance = ambulance
                 emergency.dispatch_time = self.current_time
 
     # --------------------------------------------------
-    # Movement
+    # Movement (stochastic delays applied HERE)
     # --------------------------------------------------
 
     def move_ambulance(self, ambulance):
@@ -151,43 +146,57 @@ class DispatchSimulator:
             return
 
         nxt = ambulance.path[1]
-        try:
-            base_time = self.adjacency_matrix[ambulance.current_location_id][nxt]
-        except (IndexError, TypeError):
+
+        base_time = self.adjacency_matrix[ambulance.current_location_id][nxt]
+        if base_time <= 0:
             base_time = 1
 
-
+        # Apply stochastic delay during execution (±50%)
         delay = random.uniform(1.0, 1.5)
-        actual = base_time * delay
+        actual_time = base_time * TIME_UNIT_MINUTES * delay
 
         ambulance.current_location_id = nxt
         ambulance.path = ambulance.path[1:]
-        ambulance.time_to_destination -= actual
-        ambulance.total_distance_traveled += base_time
+        ambulance.time_to_destination -= actual_time
+        ambulance.total_distance_traveled += base_time * TIME_UNIT_MINUTES
 
         if ambulance.time_to_destination <= 0:
             ambulance.time_to_destination = 0
 
+            # -----------------------------
+            # Arrival logic
+            # -----------------------------
             if ambulance.status == "responding":
                 emergency = ambulance.patient
                 emergency.arrival_time = self.current_time
                 ambulance.pickup_patient()
 
+                # Choose nearest hospital
                 hospitals = [l for l in self.locations if l["type"] == "H"]
-                if hospitals:
-                    h = hospitals[0]["id"]
-                    p, t = find_shortest_path(ambulance.current_location_id, h)
-                    ambulance.destination_id = h
+                best_h = None
+                best_t = float("inf")
+
+                for h in hospitals:
+                    p, t = find_shortest_path(ambulance.current_location_id, h["id"])
+                    if p is not None and t < best_t:
+                        best_t = t
+                        best_h = h["id"]
+
+                if best_h is not None:
+                    p, t = find_shortest_path(ambulance.current_location_id, best_h)
+                    ambulance.destination_id = best_h
                     ambulance.path = p
                     ambulance.time_to_destination = t
 
             elif ambulance.status == "transporting":
                 emergency = ambulance.patient
                 emergency.completion_time = self.current_time
+
                 self.completed_emergencies.append(emergency)
                 self.active_emergencies = [
                     e for e in self.active_emergencies if e.id != emergency.id
                 ]
+
                 ambulance.dropoff_patient()
 
                 p, t = find_shortest_path(
@@ -205,13 +214,16 @@ class DispatchSimulator:
     # --------------------------------------------------
 
     def step(self):
+        # Advance time by 1 minute
         self.current_time += 1
 
+        # Expire old emergencies
         for e in list(self.active_emergencies):
             if e.dispatch_time is None and \
                self.current_time - e.spawn_time > self.max_emergency_lifespan:
                 self.unresponded_emergencies.append(e)
                 self.active_emergencies.remove(e)
 
+        # Move ambulances
         for amb in self.ambulances:
             self.move_ambulance(amb)

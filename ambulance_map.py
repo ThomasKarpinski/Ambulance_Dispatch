@@ -11,10 +11,16 @@ Defines:
 - Locations with coordinates
 - Road network (adjacency matrix)
 - Shortest path search (Dijkstra)
-- Stochastic travel times (uncertainty)
+- Deterministic travel times (minutes)
 - Traffic simulation
 - Map reset for fair experiments
 """
+
+# =========================
+# TIME UNIT
+# =========================
+# 1 adjacency weight unit = 1 minute
+TIME_UNIT_MINUTES = 1.0
 
 # =========================
 # LOCATION DEFINITIONS
@@ -65,33 +71,37 @@ def get_location_by_id(location_id):
 
 
 def euclidean_distance(id1, id2):
-    """Straight-line distance (used for fuzzy logic if needed)."""
+    """Straight-line distance (optional utility)."""
     l1 = get_location_by_id(id1)
     l2 = get_location_by_id(id2)
     return math.sqrt((l1["x"] - l2["x"]) ** 2 + (l1["y"] - l2["y"]) ** 2)
 
 
 # =========================
-# TRAVEL TIME (DETERMINISTIC + STOCHASTIC)
+# TRAVEL TIME (DETERMINISTIC)
 # =========================
 
-def get_travel_time(u, v, stochastic=False):
+def get_travel_time(u, v):
+    """
+    Deterministic travel time in minutes.
+    Used for routing, GA optimization, and fuzzy logic.
+    """
     base_time = adjacency_matrix[u][v]
     if base_time == 0:
         return float("inf")
 
-    if stochastic:
-        noise = random.uniform(0.8, 1.3)  # ±30% delay
-        return base_time * noise
-
-    return base_time
+    return base_time * TIME_UNIT_MINUTES
 
 
 # =========================
 # SHORTEST PATH (DIJKSTRA)
 # =========================
 
-def find_shortest_path(start_id, end_id, stochastic=False):
+def find_shortest_path(start_id, end_id):
+    """
+    Deterministic shortest path using Dijkstra.
+    Returns (path, travel_time_minutes).
+    """
     num_locations = len(adjacency_matrix)
     distances = {i: float("inf") for i in range(num_locations)}
     previous = {i: None for i in range(num_locations)}
@@ -110,7 +120,7 @@ def find_shortest_path(start_id, end_id, stochastic=False):
 
         for neighbor in range(num_locations):
             if adjacency_matrix[current_node][neighbor] > 0:
-                weight = get_travel_time(current_node, neighbor, stochastic)
+                weight = get_travel_time(current_node, neighbor)
                 new_dist = current_dist + weight
 
                 if new_dist < distances[neighbor]:
@@ -136,7 +146,10 @@ def find_shortest_path(start_id, end_id, stochastic=False):
 # =========================
 
 def simulate_traffic_jam():
-    """Randomly increases travel time on one existing road."""
+    """
+    Randomly increases travel time on one existing road.
+    This modifies the map (not routing randomness).
+    """
     while True:
         i = random.randrange(len(adjacency_matrix))
         j = random.randrange(len(adjacency_matrix))
@@ -149,7 +162,7 @@ def simulate_traffic_jam():
 
 
 def reset_map():
-    """Resets the map to its original state (important for experiments)."""
+    """Resets the map to its original state."""
     global adjacency_matrix
     adjacency_matrix = copy.deepcopy(_original_matrix)
 
@@ -178,14 +191,10 @@ if __name__ == "__main__":
     print("Shortest path (deterministic):")
     print(find_shortest_path(0, 3))
 
-    print("\nShortest path (stochastic):")
-    print(find_shortest_path(0, 3, stochastic=True))
-
     print("\nSimulating traffic...")
     simulate_traffic_jam()
-    print(find_shortest_path(0, 3, stochastic=True))
+    print(find_shortest_path(0, 3))
 
     print("\nResetting map...")
     reset_map()
     print(find_shortest_path(0, 3))
-

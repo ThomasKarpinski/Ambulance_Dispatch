@@ -20,7 +20,6 @@ TRAFFIC_PROB = 0.10
 RESULTS_CSV = "experiment_results.csv"
 FIG_DIR = "figures"
 BASE_SEED = 1000
-MC_RUNS = 10
 
 os.makedirs(FIG_DIR, exist_ok=True)
 
@@ -35,24 +34,18 @@ def ga_assign(sim: DispatchSimulator, use_fuzzy: bool, seed: int):
     if not unassigned or not available:
         return
 
-    # Pass arguments positionally
     ga = GeneticDispatcher(
-        available,       # ambulances
-        unassigned,      # emergencies
-        seed,            # random seed
-        MC_RUNS          # number of Monte Carlo runs
+        available,
+        unassigned,
+        seed=seed
     )
-    # Set fuzzy mode via attribute
+
+    # attribute kept for clarity / future extension
     ga.use_fuzzy = use_fuzzy
-    assignments = ga.solve()
 
-    paired = []
-    for i, amb in enumerate(assignments):
-        if amb is not None:
-            paired.append((amb, unassigned[i]))
+    assignments = ga.solve()   # <-- already [(ambulance, emergency), ...]
 
-    sim.assign(paired)
-
+    sim.assign(assignments)
 
 # -------------------------
 # Single run
@@ -78,7 +71,7 @@ def run_single(trial, map_type, mode, seed):
         if map_type == "dynamic" and random.random() < TRAFFIC_PROB:
             simulate_traffic_jam()
 
-        # dispatch (GA or GA+Fuzzy only)
+        # dispatch
         if mode == "ga":
             ga_assign(sim, use_fuzzy=False, seed=seed + step)
         elif mode == "ga_fuzzy":
@@ -131,7 +124,7 @@ def run_experiments():
     for trial in range(TRIALS):
         seed = BASE_SEED + trial
         for map_type in ("static", "dynamic"):
-            for mode in ("ga", "ga_fuzzy"):  # baseline omitted
+            for mode in ("ga", "ga_fuzzy"):
                 print(f"Trial {trial} | {map_type} | {mode}")
                 res = run_single(trial, map_type, mode, seed)
                 results.append(res)
@@ -172,4 +165,3 @@ def plot_results(df):
 # -------------------------
 if __name__ == "__main__":
     run_experiments()
-
