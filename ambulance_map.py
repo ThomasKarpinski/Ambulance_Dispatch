@@ -77,6 +77,21 @@ def euclidean_distance(id1, id2):
     return math.sqrt((l1["x"] - l2["x"]) ** 2 + (l1["y"] - l2["y"]) ** 2)
 
 
+def get_normalized_coordinates(location_id):
+    """
+    Returns normalized coordinates (x, y) for a given location ID.
+    Scale: x / 10.0, y / 10.0 (assuming 10x10 max grid for simplicity, though y max is 6).
+    """
+    loc = get_location_by_id(location_id)
+    if not loc:
+        return 0.0, 0.0
+    
+    # Normalize assuming a grid of size 10x10 roughly covering the map
+    norm_x = loc['x'] / 10.0
+    norm_y = loc['y'] / 10.0
+    return norm_x, norm_y
+
+
 # =========================
 # TRAVEL TIME (DETERMINISTIC)
 # =========================
