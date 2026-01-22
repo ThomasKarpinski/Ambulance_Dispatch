@@ -1,71 +1,81 @@
 # Ambulance Dispatch Optimization
 
-This project aims to simulate and optimize ambulance dispatching in a city. It provides a foundational environment for developing and testing pathfinding algorithms, such as Genetic Algorithms, to find the most efficient routes for emergency response.
+An AI-driven simulation framework for optimizing ambulance dispatching in a dynamic urban environment. This project integrates Genetic Algorithms, Fuzzy Logic, and Neural Networks to improve emergency response efficiency.
 
-## Current State
+## 🚀 Key Features
 
-The project has evolved from its initial setup phase and now includes a more complete and functional simulation and optimization framework. The key implemented components are:
+*   **AI-Driven Dispatch**: Advanced ambulance assignment using a **Genetic Algorithm (GA)**.
+*   **Fuzzy Logic System**: Intelligent emergency prioritization based on reported severity and estimated travel time.
+*   **ANN Risk Prediction**: A **PyTorch-based Artificial Neural Network** that predicts high-risk "hotspots" based on time and location.
+*   **Dynamic Simulation**: Real-world scenarios including traffic jams and time-dependent emergency spawning patterns.
+*   **Comprehensive Analytics**: Automated experiment runs with performance visualization (response times, utilization, etc.).
 
-1.  **Map Generation**: A script that defines the city map as a graph and can save it to CSV files.
-2.  **Dynamic Map**: The map supports real-time changes to road weights to simulate events like traffic jams.
-3.  **Pathfinding**: Dijkstra's algorithm has been implemented in `ambulance_map.py` to find the shortest path between any two locations on the map.
-4.  **Full Simulation Environment**: The `simulation.py` script now manages a complete simulation loop, including:
-    *   Ambulance dispatching using a greedy algorithm.
-    *   Ambulance movement along paths, patient pickup and dropoff.
-    *   Tracking of completed and unresponded emergencies.
-5.  **Genetic Algorithm Framework**: `genetic_algorithm.py` contains a basic GA structure for optimizing dispatch strategies. It includes:
-    *   A main loop for generations and epochs.
-    *   Rudimentary mutation and crossbreeding operators (can be enabled with a `fuzzy` flag).
-    *   A fitness evaluation function based on the emergency satisfaction rate.
+## 🏗️ Core Components
 
-## Map Structure
+### 1. Dispatcher (Genetic Algorithm)
+Located in `ga_dispatcher.py`, this component uses a GA to solve the assignment problem:
+- **Fitness Function**: Evaluates assignments based on travel time and emergency priority.
+- **Fuzzy Integration**: Can use the Fuzzy Logic system to calculate dynamic priorities.
+- **Monte Carlo Stability**: Uses multiple runs to stabilize fitness evaluation in stochastic environments.
 
-The city map is represented as a weighted, undirected graph. This information is primarily managed in `ambulance_map.py` and saved to two CSV files:
+### 2. Priority System (Fuzzy Logic)
+Located in `fuzzy_system.py`, it implements a Mamdani fuzzy inference system:
+- **Inputs**: `reported_priority` (0-10) and `travel_time`.
+- **Output**: `priority_score` (0-100) used by the GA to rank assignments.
 
-### 1. `locations.csv`
-This file defines the nodes of our graph. Each line represents a specific point on the map.
+### 3. Risk Prediction (Neural Network)
+Located in `risk_prediction.py`, it features a 3-layer MLP:
+- **Training**: Learns from historical patterns (time/location) to identify hotspots.
+- **Synchronization**: The simulation uses the same "Ground Truth" patterns to spawn emergencies, allowing the ANN to proactively identify high-risk zones.
 
--   **Columns**: `id`, `type`, `name`
--   **Location Types**:
-    -   `A`: Ambulance Base - Where ambulances start and return.
-    -   `H`: Hospital - Where patients are transported.
-    -   `E`: Emergency Zone - Pre-defined locations where emergencies can occur.
-    -   `I`: Intersection - Junctions that connect the other locations. These are the crossroads of the city network.
+### 4. Simulation Engine
+Located in `simulation.py` and `ambulance_map.py`:
+- **Graph-based Map**: City represented as a weighted graph (CSV-based).
+- **Dynamic Weights**: Simulates traffic jams by increasing road costs in real-time.
+- **State Machine**: Tracks ambulances through `available`, `responding`, `transporting`, and `returning` states.
 
-### 2. `adjacency_matrix.csv`
-This file defines the edges of our graph—the roads connecting the locations.
+## 📊 How to Run
 
--   It is a symmetrical matrix where the value at `[row][col]` represents the "weight" or "cost" of traveling the road between the location with `id = row` and the location with `id = col`.
--   **Weight (1-5)**: A lower number (e.g., 1) represents a fast/easy road, while a higher number (e.g., 5) represents a slow/costly road (e.g., due to distance or traffic).
--   **Weight (0)**: A value of zero means there is **no direct road** between the two locations. A path must be found through other connected nodes.
+### 1. Prepare the Environment
+Ensure you have the required dependencies:
+```bash
+pip install torch numpy pandas matplotlib
+```
 
-## How to Run
+### 2. Train the Risk Model (ANN)
+Generate data and train the neural network to recognize emergency patterns:
+```bash
+python3 risk_prediction.py
+```
 
-1.  **To view the map and generate the CSV files**:
-    ```bash
-    python3 ambulance_map.py
-    ```
-    This script will also demonstrate a random traffic jam by modifying a road's weight.
+### 3. Run Full Experiments
+Execute the main experiment suite which compares **GA** vs **GA + Fuzzy** across **static** and **dynamic** maps:
+```bash
+python3 run.py
+```
+This will:
+- Run 30 trials for each configuration.
+- Save results to `experiment_results.csv`.
+- Generate performance plots in the `figures/` directory.
 
-2.  **To run the dispatch simulation with a greedy approach**:
-    ```bash
-    python3 simulation.py
-    ```
-    This script will initialize the ambulance fleet and run a live simulation with dynamic emergency spawning and ambulance dispatching.
+### 4. Run Individual Simulations
+To see a single simulation run with a greedy approach:
+```bash
+python3 simulation.py
+```
 
-3.  **To run the Genetic Algorithm**:
-    The `genetic_algorithm.py` file is set up to be imported as a module. To run a demonstration of the GA, you can add a main execution block to the end of the file. See the commit history for an example of how to do this.
+## 📈 Results and Figures
 
-4.  **To run the automated tests**:
-    ```bash
-    python3 -m unittest discover tests
-    ```
+The project generates several visualizations in the `figures/` folder:
+- **Response Times**: Boxplots comparing GA and GA+Fuzzy.
+- **Utilization**: Ambulance busy-time metrics.
+- **Total Distance**: Efficiency of the routes taken.
+- **ANN Heatmaps**: Visualization of predicted vs. actual risk zones (in `figures/ANN_figures/`).
 
-## Next Steps
+## 🛠️ Map Structure
 
-The foundational framework is now in place. Future development can focus on enhancing the genetic algorithm and the simulation's realism:
+- `locations.csv`: Definitions of Nodes (Ambulance Bases, Hospitals, Emergencies, Intersections).
+- `adjacency_matrix.csv`: Definitions of Edges (Roads) and their base travel costs.
 
--   **Advanced GA Operators**: Implement more sophisticated mutation and crossbreeding strategies that operate intelligently on ambulance paths and assignments.
--   **Refined Fitness Function**: The fitness function in the GA could be expanded to include metrics like average response time, total travel distance, and resource utilization.
--   **Fuzzy Logic for Dispatch**: Implement the "fuzzy" logic for `reassign_emergencies` in the GA to allow for more complex and optimized dispatch decisions beyond the simple greedy approach.
--   **Simulation Realism**: Add more real-world factors to the simulation, such as varying travel times based on time of day, ambulance availability constraints, and more complex emergency scenarios.
+## ⚖️ License
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

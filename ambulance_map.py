@@ -1,176 +1,215 @@
 import csv
 import random
 import heapq
+import copy
+import math
 
 """
-This module defines the map for the ambulance dispatch optimization problem.
+Ambulance Dispatch Map Module
 
-The map is represented as a graph with a set of locations and an adjacency matrix.
+Defines:
+- Locations with coordinates
+- Road network (adjacency matrix)
+- Shortest path search (Dijkstra)
+- Deterministic travel times (minutes)
+- Traffic simulation
+- Map reset for fair experiments
 """
 
-# Define the locations on the map
-# Each location is a dictionary with an ID, type, and name.
-# Types: 'A' for Ambulance Base, 'H' for Hospital, 'E' for Emergency, 'I' for Intersection
+# =========================
+# TIME UNIT
+# =========================
+# 1 adjacency weight unit = 1 minute
+TIME_UNIT_MINUTES = 1.0
+
+# =========================
+# LOCATION DEFINITIONS
+# =========================
+# Types:
+# A = Ambulance Base
+# H = Hospital
+# E = Emergency hotspot
+# I = Intersection
+
 locations = [
-    {"id": 0, "type": "A", "name": "Ambulance Base 1"},
-    {"id": 1, "type": "H", "name": "City General Hospital"},
-    {"id": 2, "type": "H", "name": "Suburban Medical Center"},
-    {"id": 3, "type": "E", "name": "Emergency at Downtown"},
-    {"id": 4, "type": "I", "name": "Intersection A"},
-    {"id": 5, "type": "I", "name": "Intersection B"},
-    {"id": 6, "type": "E", "name": "Emergency on Highway"},
+    {"id": 0, "type": "A", "name": "Ambulance Base 1", "x": 0, "y": 0},
+    {"id": 1, "type": "H", "name": "City General Hospital", "x": 6, "y": 1},
+    {"id": 2, "type": "H", "name": "Suburban Medical Center", "x": 9, "y": 6},
+    {"id": 3, "type": "E", "name": "Emergency at Downtown", "x": 3, "y": 4},
+    {"id": 4, "type": "I", "name": "Intersection A", "x": 2, "y": 2},
+    {"id": 5, "type": "I", "name": "Intersection B", "x": 6, "y": 4},
+    {"id": 6, "type": "E", "name": "Emergency on Highway", "x": 10, "y": 3},
 ]
 
-# Adjacency matrix representing the graph.
-# The value at adj_matrix[i][j] is the weight (e.g., travel time) of the road
-# between location i and location j.
-# A value of 0 indicates no direct road.
-# The graph is undirected, so the matrix is symmetric.
+# =========================
+# ADJACENCY MATRIX
+# =========================
+# 0 means no road
 adjacency_matrix = [
-    # 0(A)  1(H)  2(H)  3(E)  4(I)  5(I)  6(E)
-    [0,     0,     0,     0,     2,     0,     0],    # 0: Ambulance Base 1
-    [0,     0,     0,     0,     0,     1,     0],    # 1: City General Hospital
-    [0,     0,     0,     0,     3,     4,     0],    # 2: Suburban Medical Center
-    [0,     0,     0,     0,     1,     0,     5],    # 3: Emergency at Downtown
-    [2,     0,     3,     1,     0,     5,     0],    # 4: Intersection A
-    [0,     1,     4,     0,     5,     0,     0],    # 5: Intersection B
-    [0,     0,     0,     5,     0,     0,     0],    # 6: Emergency on Highway
+    # 0  1  2  3  4  5  6
+    [0, 0, 0, 0, 2, 0, 0],  # 0 Base
+    [0, 0, 0, 0, 0, 1, 0],  # 1 Hospital
+    [0, 0, 0, 0, 3, 4, 0],  # 2 Hospital
+    [0, 0, 0, 0, 1, 0, 5],  # 3 Emergency
+    [2, 0, 3, 1, 0, 5, 0],  # 4 Intersection
+    [0, 1, 4, 0, 5, 0, 0],  # 5 Intersection
+    [0, 0, 0, 5, 0, 0, 0],  # 6 Emergency
 ]
 
-def save_map_to_csv():
-    """
-    Saves the locations and adjacency matrix to CSV files.
-    """
-    print("\nSaving map data to CSV files...")
+# Save original matrix for resets
+_original_matrix = copy.deepcopy(adjacency_matrix)
 
-    # Save locations
-    with open('locations.csv', 'w', newline='') as f:
-        writer = csv.writer(f)
-        # Write header
-        writer.writerow(['id', 'type', 'name'])
-        # Write data
-        for loc in locations:
-            writer.writerow([loc['id'], loc['type'], loc['name']])
-    print("  - locations.csv created successfully.")
-
-    # Save adjacency matrix
-    with open('adjacency_matrix.csv', 'w', newline='') as f:
-        writer = csv.writer(f)
-        writer.writerows(adjacency_matrix)
-    print("  - adjacency_matrix.csv created successfully.")
+# =========================
+# UTILITY FUNCTIONS
+# =========================
 
 def get_location_by_id(location_id):
-    """
-    Finds a location from the list by its ID.
-    """
-    for location in locations:
-        if location["id"] == location_id:
-            return location
+    for loc in locations:
+        if loc["id"] == location_id:
+            return loc
     return None
+
+
+def euclidean_distance(id1, id2):
+    """Straight-line distance (optional utility)."""
+    l1 = get_location_by_id(id1)
+    l2 = get_location_by_id(id2)
+    return math.sqrt((l1["x"] - l2["x"]) ** 2 + (l1["y"] - l2["y"]) ** 2)
+
+
+def get_normalized_coordinates(location_id):
+    """
+    Returns normalized coordinates (x, y) for a given location ID.
+    Scale: x / 10.0, y / 10.0 (assuming 10x10 max grid for simplicity, though y max is 6).
+    """
+    loc = get_location_by_id(location_id)
+    if not loc:
+        return 0.0, 0.0
+    
+    # Normalize assuming a grid of size 10x10 roughly covering the map
+    norm_x = loc['x'] / 10.0
+    norm_y = loc['y'] / 10.0
+    return norm_x, norm_y
+
+
+# =========================
+# TRAVEL TIME (DETERMINISTIC)
+# =========================
+
+def get_travel_time(u, v):
+    """
+    Deterministic travel time in minutes.
+    Used for routing, GA optimization, and fuzzy logic.
+    """
+    base_time = adjacency_matrix[u][v]
+    if base_time == 0:
+        return float("inf")
+
+    return base_time * TIME_UNIT_MINUTES
+
+
+# =========================
+# SHORTEST PATH (DIJKSTRA)
+# =========================
 
 def find_shortest_path(start_id, end_id):
     """
-    Finds the shortest path between two locations using Dijkstra's algorithm.
-    Returns the path as a list of location IDs and the total distance.
+    Deterministic shortest path using Dijkstra.
+    Returns (path, travel_time_minutes).
     """
     num_locations = len(adjacency_matrix)
-    distances = {i: float('inf') for i in range(num_locations)}
+    distances = {i: float("inf") for i in range(num_locations)}
+    previous = {i: None for i in range(num_locations)}
+
     distances[start_id] = 0
-    previous_nodes = {i: None for i in range(num_locations)}
-    
     pq = [(0, start_id)]
 
     while pq:
-        current_distance, current_node = heapq.heappop(pq)
+        current_dist, current_node = heapq.heappop(pq)
 
-        if current_distance > distances[current_node]:
+        if current_dist > distances[current_node]:
             continue
 
         if current_node == end_id:
             break
 
-        for neighbor, weight in enumerate(adjacency_matrix[current_node]):
-            if weight > 0:
-                distance = current_distance + weight
-                if distance < distances[neighbor]:
-                    distances[neighbor] = distance
-                    previous_nodes[neighbor] = current_node
-                    heapq.heappush(pq, (distance, neighbor))
+        for neighbor in range(num_locations):
+            if adjacency_matrix[current_node][neighbor] > 0:
+                weight = get_travel_time(current_node, neighbor)
+                new_dist = current_dist + weight
 
+                if new_dist < distances[neighbor]:
+                    distances[neighbor] = new_dist
+                    previous[neighbor] = current_node
+                    heapq.heappush(pq, (new_dist, neighbor))
+
+    # Reconstruct path
     path = []
-    current_node = end_id
-    while current_node is not None:
-        path.insert(0, current_node)
-        current_node = previous_nodes[current_node]
-        
-    if path[0] == start_id:
+    node = end_id
+    while node is not None:
+        path.insert(0, node)
+        node = previous[node]
+
+    if path and path[0] == start_id:
         return path, distances[end_id]
-    else:
-        return None, float('inf')
 
-def print_matrix():
-    """Prints the adjacency matrix in a readable format."""
-    header = "     " + "  ".join([f"{loc['id']:<4}" for loc in locations])
-    print(header)
-    print("    " + "-" * (len(locations) * 5))
+    return None, float("inf")
 
-    for i, row in enumerate(adjacency_matrix):
-        row_str = f"{i:<4}|"
-        for weight in row:
-            row_str += f"  {weight:<4}"
-        print(row_str)
 
-def update_road_weight(loc1_id, loc2_id, new_weight):
-    """
-    Updates the weight of the road between two locations in the adjacency matrix.
-    Assumes an undirected graph, so it updates the connection in both directions.
-    """
-    if 0 <= loc1_id < len(adjacency_matrix) and 0 <= loc2_id < len(adjacency_matrix):
-        if adjacency_matrix[loc1_id][loc2_id] > 0:
-            print(f"\n-> Updating road between '{get_location_by_id(loc1_id)['name']}' and '{get_location_by_id(loc2_id)['name']}'.")
-            print(f"   Old weight: {adjacency_matrix[loc1_id][loc2_id]}. New weight: {new_weight}.")
-            adjacency_matrix[loc1_id][loc2_id] = new_weight
-            adjacency_matrix[loc2_id][loc1_id] = new_weight
-            return True
-    return False
+# =========================
+# TRAFFIC & RESET
+# =========================
 
 def simulate_traffic_jam():
     """
-    Simulates a random traffic event by finding a random existing road
-    and increasing its weight.
+    Randomly increases travel time on one existing road.
+    This modifies the map (not routing randomness).
     """
-    print("\n--- Simulating a random traffic jam... ---")
     while True:
-        # Find a random road that actually exists (weight > 0)
-        loc1_id = random.randrange(len(adjacency_matrix))
-        loc2_id = random.randrange(len(adjacency_matrix))
+        i = random.randrange(len(adjacency_matrix))
+        j = random.randrange(len(adjacency_matrix))
 
-        if adjacency_matrix[loc1_id][loc2_id] > 0:
-            # Increase weight by a random amount from 1 to 3, up to a max of 5
-            current_weight = adjacency_matrix[loc1_id][loc2_id]
-            if current_weight >= 5: # Don't increase weight if it's already maxed out
-                continue
-            new_weight = min(5, current_weight + random.randint(1, 3))
-            update_road_weight(loc1_id, loc2_id, new_weight)
-            break # Exit loop once a road is updated
+        if adjacency_matrix[i][j] > 0:
+            if adjacency_matrix[i][j] < 5:
+                adjacency_matrix[i][j] += random.randint(1, 2)
+                adjacency_matrix[j][i] = adjacency_matrix[i][j]
+            break
+
+
+def reset_map():
+    """Resets the map to its original state."""
+    global adjacency_matrix
+    adjacency_matrix = copy.deepcopy(_original_matrix)
+
+
+# =========================
+# CSV EXPORT (OPTIONAL)
+# =========================
+
+def save_map_to_csv():
+    with open("locations.csv", "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["id", "type", "name", "x", "y"])
+        for loc in locations:
+            writer.writerow([loc["id"], loc["type"], loc["name"], loc["x"], loc["y"]])
+
+    with open("adjacency_matrix.csv", "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerows(adjacency_matrix)
+
+
+# =========================
+# DEMO
+# =========================
 
 if __name__ == "__main__":
-    # Example of how to use the map data
-    print("Ambulance Dispatch Map")
-    print("=" * 25)
-    
-    print("\nLocations:")
-    for loc in locations:
-        print(f"ID: {loc['id']}, Type: {loc['type']}, Name: {loc['name']}")
-        
-    print("\nAdjacency Matrix (Original):")
-    print_matrix()
-    
-    # Demonstrate a real-time change
-    simulate_traffic_jam()
+    print("Shortest path (deterministic):")
+    print(find_shortest_path(0, 3))
 
-    print("\nAdjacency Matrix (After Traffic Jam):")
-    print_matrix()
-    
-    # Save the updated map to CSV files
-    save_map_to_csv()
+    print("\nSimulating traffic...")
+    simulate_traffic_jam()
+    print(find_shortest_path(0, 3))
+
+    print("\nResetting map...")
+    reset_map()
+    print(find_shortest_path(0, 3))
